@@ -1,0 +1,369 @@
+/*
+ Name:    robot_es_v2.ino
+ Created: 6/2/2021 11:10:41 PM
+ Author:  Ton van Dijk
+* /
+
+#include <Ultrasonic.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+
+
+//LiquidCrystal_I2C lcd(0x27, 20, 4);
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
+//set pins for ultrasonic sensors
+Ultrasonic sensorVoor(6, 7); // (Trig PIN,Echo PIN)
+Ultrasonic sensorLinks(8, 9); // (Trig PIN,Echo PIN)
+Ultrasonic sensorRechts(A1, A2); // (Trig PIN,Echo PIN)
+
+//for battery voltage
+const int batteryPin = A0;
+
+//parameters om sneheden te wijzigen
+int vooruitSnelheid = 110;        // MAX 255
+int draaiSnelheid = 50;    //  draait met de snelheit van vooruit + draaisnelheid met een MAX 255; vooruitsnelheid + draaisnelheid mag niet meer zijn als 255 
+
+//L293n Connection   
+const int motorLinksA = 2;
+const int motorLinksB = 3;
+const int motorLinksSpeed = 10;
+
+
+const int motorRechtsA = 4;
+const int motorRechtsB = 5;
+const int motorRechtsSpeed = 11;
+
+//irSensor Connection
+const int dieptesensor = 13;
+
+char bericht[10] = "leeg";
+
+bool rechtsIsDichtbij = true;
+bool racemodus = true;
+
+//de tijd om 1 graad = 6.88888
+int hoek90 = 620; //tijd in ms om 90 graden te draaien;
+int batterijPercentage;
+int counterLinks = 0;
+int counterRechts = 0;
+
+//int left_sensor_state;
+//int right_sensor_state;
+
+void setup() {
+  //set io for motors
+  pinMode(motorLinksA, OUTPUT);
+  pinMode(motorLinksB, OUTPUT);
+  pinMode(motorRechtsA, OUTPUT);
+  pinMode(motorRechtsB, OUTPUT);
+
+  pinMode(motorLinksSpeed, OUTPUT);
+  pinMode(motorRechtsSpeed, OUTPUT);
+
+  //set io for sensors
+  pinMode(dieptesensor, INPUT);
+
+  //start serial monitor on baudrate 9600
+  Serial.begin(9600);
+  //for initialization lcd
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("welkom bij BOB"); // make sure its shorter than 16 charakters long
+  
+  //play start sound
+  char bericht[10] = "ssou"; //start sound
+  Serial.write(bericht, 4);
+  delay(1000);
+
+  //char bericht[10] = "wite"; //start sound
+  //Serial.write(bericht, 4);
+  delay(1000);
+
+
+  
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(batterijPercentage);
+
+  if (batterijPercentage > 40) {
+    char bericht[10] = "batt"; //batterrij sound
+    Serial.write(bericht, 4);
+  }
+  else {
+    char bericht[10] = "groe"; //laat het ledje groen branden
+    Serial.write(bericht, 4);
+  }
+}
+
+void draaiLinksom(int tijd) {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+
+  analogWrite(motorLinksSpeed, vooruitSnelheid);
+  analogWrite(motorRechtsSpeed, vooruitSnelheid);
+
+  delay(tijd); // een delay mag, want hij draait om zijn as, dus er zijn geen verdere gevaren
+
+}
+void draaiRechtsom(int tijd) {
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+
+  analogWrite(motorLinksSpeed, vooruitSnelheid);
+  analogWrite(motorRechtsSpeed, vooruitSnelheid);
+
+  delay(tijd); //een delay mag, want hij draait om zijn as, dus er zijn geen verdere gevaren
+
+}
+void driveForward() {
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+
+  analogWrite(motorLinksSpeed, vooruitSnelheid);
+  analogWrite(motorRechtsSpeed, vooruitSnelheid);
+}
+void driveBackward() {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+
+  analogWrite(motorLinksSpeed, vooruitSnelheid);
+  analogWrite(motorRechtsSpeed, vooruitSnelheid);
+
+
+
+}
+void stop() {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, LOW);
+
+  analogWrite(motorLinksSpeed, vooruitSnelheid);
+  analogWrite(motorRechtsSpeed, vooruitSnelheid);
+}
+void updateBatterij() {
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(batterijPercentage);
+
+  //if (batterijPercentage > 40) {
+  //  char bericht[10] = "batt"; //batterrij sound
+  //  Serial.write(bericht, 4);
+  //}
+  //else {
+  //  char bericht[10] = "groe"; //laat het ledje groen branden
+  //  Serial.write(bericht, 4);
+
+  //}
+}
+void muurDichstbij() {
+  int zoekTimer = 0;
+  //check welke muur het dichstbij is (1 keer in de 5000 loops)
+  if (sensorLinks.read() < 200 && sensorRechts.read() > 200) {
+    //muur links zit dichterbij
+    rechtsIsDichtbij = false;
+  }
+  else if(sensorRechts.read() < 200 && sensorLinks.read() > 200) {
+    // muur rechts zit dichterbij
+    rechtsIsDichtbij = true;
+  }
+  else {
+    racemodus = false;
+  
+  
+  }
+
+
+  
+
+
+
+}
+
+
+void loop() {
+  int RijIkNogRechtdoorCheckCounter = 0;
+  bool geenAfgrond;
+
+  int afstandRechts = sensorRechts.read();
+  int afstandLinks = sensorLinks.read();
+  geenAfgrond = digitalRead(dieptesensor);
+  int afstandVoor = sensorVoor.read();
+  int meting1 = afstandRechts;
+  int meting2;
+  
+  driveForward();
+  
+  bool rijrichtingRechts = false;
+  bool rijrichtingLinks = false;
+  //muurDichstbij(); //checkt welke muur het dichstbij is
+
+  while (racemodus) {
+    //updateBatterij(); //checkt elke keer hoevol de batterij zit, en stuurd commands naar de nano
+    //Serial.println(RijIkNogRechtdoorCheckCounter);
+    RijIkNogRechtdoorCheckCounter++;   //mooiste variabel ooit
+
+    afstandVoor = sensorVoor.read();
+
+    geenAfgrond = digitalRead(dieptesensor);
+    
+    if (RijIkNogRechtdoorCheckCounter > 200) { //checkt elke seconde
+      //dit loopje checkt of de robot evenwijdig rijdt. 
+      //hij volgt op dit moment alleen nog maar de rechtermuur
+
+      Serial.println("systeem scheckt rijrichting");
+      //doe een nieuwe meting met je sensor.
+      meting2 = meting1; //schuift je meting door, hierdoor hoef je mindervaak te meten.
+      meting1 = sensorRechts.read();
+      Serial.println(meting1);
+      Serial.println(meting2);
+
+      //follow parallelism of the wall
+      if (meting2 < meting1) {
+        if (counterLinks == 0) {
+          draaiLinksom(50);
+        }
+        else if (counterLinks == 50) {
+          counterLinks = 0;
+        }
+        else {
+          driveForward();
+        }
+        counterLinks++;
+        //rijrichtingLinks = true;
+        //rijrichtingRechts = false;
+
+        //de robot rijdt naar links
+        Serial.println("de robot rijdt naar links t.o.v. muur");
+      }
+      else if (meting2 > meting1) {
+        if (counterRechts == 0) {
+          draaiRechtsom(50);
+        }
+        else if (counterRechts == 50) {
+          counterRechts = 0;
+        }
+        else {
+          driveForward();
+        }
+        counterRechts++;
+
+        //rijrichtingLinks = false;
+        //rijrichtingRechts = true;
+        Serial.println("de robot rijdt naar rechts t.o.v. muur");
+      }
+      else {
+        counterLinks = 0;
+        counterRechts = 0;
+        driveForward();
+
+        rijrichtingLinks = true;
+        rijrichtingRechts = true;
+        Serial.println("de robot rijdt rechtdoor t.o.v. muur");
+      }
+      RijIkNogRechtdoorCheckCounter = 0;
+    }
+
+    if (afstandVoor < 25) {
+      Serial.println("robot ziet opstakel aan de voorkant");
+      //draai een kwartslag, rij net zo lang todat hij weer kan draaien rij vooruit
+      afstandRechts = sensorRechts.read();
+      afstandLinks = sensorLinks.read();
+
+      if (afstandRechts < afstandLinks) {
+        draaiLinksom(hoek90);
+        driveForward();
+        delay(100);
+
+        while (sensorLinks.read() < 20 && sensorVoor.read() > 10) {
+          //zolang de afstand links kleiner is als 20 wacht ff
+          delay(10);
+        }
+        if (sensorLinks.read() > 20){
+          draaiRechtsom(hoek90);
+          driveForward();
+        }
+        else {
+          draaiLinksom(hoek90*2);
+          driveForward();
+        }
+      }
+      else {
+        draaiRechtsom(hoek90);
+        driveForward();
+        delay(100);
+        while (sensorRechts.read() < 20 && sensorVoor.read() > 10) {
+          //zolang de afstand rechts kleiner is als 20 wacht ff
+          delay(10);
+        }
+        if (sensorLinks.read() > 20) {
+          draaiLinksom(hoek90);
+        }
+        else {
+          draaiRechtsom(hoek90*2);
+        }
+      }
+    }
+    if (digitalRead(dieptesensor) == 1) {
+      Serial.println("robot ziet afgrond");
+      driveBackward();
+      delay(600);
+      draaiLinksom(100);
+      racemodus = false;
+    }
+  }
+
+  //onderstaand programma klopt
+  char bericht[10] = "rood"; //laat het ledje rood branden
+  Serial.write(bericht, 4);
+  while (!racemodus) {
+    updateBatterij();
+    afstandVoor = sensorVoor.read();
+    afstandLinks = sensorLinks.read();
+    afstandRechts = sensorRechts.read();
+
+    if (digitalRead(dieptesensor) == 1) { //klopt het dat zijn status 1 is als hij een afgrond ziet
+      stop();
+      delay(500);
+      driveBackward();
+      delay(1000);
+      draaiLinksom(6.88 * 120); 
+    }
+    else if (afstandVoor < 20 && afstandLinks > 15 && afstandRechts < 15) {
+      //draaien
+      draaiLinksom(hoek90);
+
+
+    }else if(afstandVoor < 20 && afstandLinks < 15 && afstandRechts > 15){
+      draaiRechtsom(hoek90);
+    }
+    else if (afstandVoor < 20 && afstandLinks > 15 && afstandRechts > 15) {
+      draaiRechtsom(6.888888 * 120); //120 graden
+    }
+    else {
+      driveForward();
+    }
+  }
+}
