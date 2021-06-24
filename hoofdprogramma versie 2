@@ -1,0 +1,193 @@
+#include <Ultrasonic.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+enum State{dodging_hole, random_movement};
+
+State current_state{};
+State next_state{};
+  
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
+//set pins for ultrasonic sensors
+Ultrasonic sensorVoor(6, 7); // (Trig PIN,Echo PIN)
+Ultrasonic sensorLinks(8, 9); // (Trig PIN,Echo PIN)
+Ultrasonic sensorRechts(A1, A2); // (Trig PIN,Echo PIN)
+
+bool left_closest = false;
+bool right_closest = false;
+bool dont_change_state = false;
+
+//for battery voltage
+const int batteryPin = A0;
+
+//L293n Connection   
+const int motorLinksA = 2;
+const int motorLinksB = 3;
+const int motorLinksSpeed = 10;
+
+const int motorRechtsA = 4;
+const int motorRechtsB = 5;
+const int motorRechtsSpeed = 11;
+
+//irSensor Connection
+const int dieptesensor = 13;
+
+//de tijd om 1 graad = 6.8888
+const int hoek1 = 6.8888;
+const int hoek90 = 620; //tijd in ms om 90 graden te draaien;
+int batterijPercentage;
+
+char command[10] = "leeg";
+
+void setup() {
+  //set io for motors
+  pinMode(motorLinksA, OUTPUT);
+  pinMode(motorLinksB, OUTPUT);
+  pinMode(motorRechtsA, OUTPUT);
+  pinMode(motorRechtsB, OUTPUT);
+
+  pinMode(motorLinksSpeed, OUTPUT);
+  pinMode(motorRechtsSpeed, OUTPUT);
+
+  pinMode(dieptesensor, INPUT);
+
+  Serial.begin(9600);
+
+  lcd.begin();
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("welkom bij BOB"); 
+  
+  char bericht[10] = "ssou"; 
+  Serial.write(bericht, 4);
+  delay(1000);
+
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(batterijPercentage); 
+
+  next_state = random_movement;
+}
+
+void adjust_left(int time) {
+  delay(10);
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+  delay(time);
+}
+
+void adjust_right(int time) {
+  delay(10);
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+  delay(time);
+}
+
+void drive_forward() {
+  delay(10);
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+}
+
+void drive_backward(int time) {
+  stop_driving();
+  delay(100);
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+  delay(time);
+}
+
+void prevent_fall(){
+  drive_backward(1000);
+  adjust_left(620);
+}
+
+void stop_driving() {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, LOW);
+}
+
+void print_battery(){
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(sensorLinks.read());
+}
+
+int closest_wall(){
+  int distance_left = sensorLinks.read();
+  int distance_right = sensorRechts.read();
+  if (distance_left > distance_right){
+    left_closest = false;
+    right_closest = true;
+  }
+  else {
+    left_closest = true;
+    right_closest = false;
+  }
+} 
+
+void loop() {
+  current_state = next_state;
+  
+  int distance_front = sensorVoor.read();
+  int distance_right = sensorRechts.read();
+  int distance_left = sensorLinks.read();
+  
+  bool fall = digitalRead(dieptesensor);
+
+  if (fall == true) {
+    current_state = dodging_hole;
+  }
+  
+  switch(current_state){
+    case dodging_hole:
+      prevent_fall();
+      next_state = random_movement;
+      break;
+
+    case random_movement:
+      closest_wall();
+      if (distance_front < 25) {
+        char command[10] = "alaa";
+        Serial.write(command, 4);
+        if (left_closest) {  
+          adjust_right(random(500, 1000));
+          drive_forward();
+        } 
+        else {
+          adjust_left(random(500, 1000));
+          drive_forward();
+        }
+      } else if (distance_left < 15) {
+        adjust_right(random(500, 1000));
+      }
+      else if (distance_right < 8) {
+        adjust_left(random(500, 1000));
+      }
+      else {
+        drive_forward();
+      } 
+      break;
+  }
+}
