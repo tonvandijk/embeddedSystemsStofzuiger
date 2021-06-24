@@ -1,0 +1,150 @@
+//dit programma stuurt een rgb led aan en 4 normale leds aan. ook stuurt dit programma een speaker aan.
+#include "pitches.h"
+
+char char_command[4]; //Initialized variable to store recieved data
+
+const int led_R = 4;
+const int led_G = 3;
+const int led_B = 2;
+const int led_voorL = 5;
+const int led_voorR = 6;
+const int led_achterL = 7;
+const int led_achterR = 8;
+const int speaker = 9;
+
+bool startPlayed = false;
+bool alarmPlayed = false;
+bool batterijPlayed = false;
+
+int startup_melody[] = {
+  NOTE_C4, NOTE_G4, NOTE_D6, -1
+};
+
+int startup_duration[] = {
+  6, 6, 6, 
+};
+
+int alarm_melody[] = {
+  NOTE_GS3, NOTE_GS3, -1
+};
+
+int alarm_duration[] = {
+  4, 4, 2,
+};
+
+int battery_melody[] = {
+  NOTE_D4, NOTE_D4, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_F4, NOTE_G4,
+  NOTE_C4, NOTE_C4, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_F4, NOTE_G4,
+  NOTE_B3, NOTE_B3, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_F4, NOTE_G4,
+  NOTE_AS3, NOTE_AS3, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_G4, NOTE_F4, NOTE_D4, NOTE_F4, NOTE_G4,
+
+  NOTE_D4, NOTE_D3, NOTE_D4, NOTE_D3, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_D3, NOTE_G4, NOTE_D3, NOTE_F4, NOTE_D3, NOTE_D4, NOTE_D3, NOTE_F4, NOTE_D3, NOTE_G4, NOTE_D3,
+  NOTE_C4, NOTE_C3, NOTE_C4, NOTE_C3, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_C3, NOTE_G4, NOTE_C3, NOTE_F4, NOTE_C3, NOTE_D4, NOTE_C3, NOTE_F4, NOTE_C3, NOTE_G4, NOTE_C3,
+  NOTE_B3, NOTE_B2, NOTE_B3, NOTE_B2, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_B2, NOTE_G4, NOTE_B2, NOTE_F4, NOTE_B2, NOTE_D4, NOTE_B2, NOTE_F4, NOTE_B2, NOTE_G4, NOTE_B2,
+  NOTE_AS3, NOTE_AS2, NOTE_AS3, NOTE_AS2, NOTE_D5, NOTE_A4, NOTE_GS4, NOTE_AS2, NOTE_G4, NOTE_AS2, NOTE_F4, NOTE_AS2, NOTE_D4, NOTE_AS2, NOTE_F4, NOTE_AS2, NOTE_G4, NOTE_AS2,
+};
+
+int battery_duration[] = {
+  8, 8, 4, 3, 4, 4, 4, 8, 8, 8, 
+  8, 8, 4, 3, 4, 4, 4, 8, 8, 8,
+  8, 8, 4, 3, 4, 4, 4, 8, 8, 8,
+  8, 8, 4, 3, 4, 4, 4, 8, 8, 8,
+
+  16,16, 16,16, 4, 3, 8,8, 8,8, 8,8, 16,16, 16,16, 16,16,
+  16,16, 16,16, 4, 3, 8,8, 8,8, 8,8, 16,16, 16,16, 16,16,
+  16,16, 16,16, 4, 3, 8,8, 8,8, 8,8, 16,16, 16,16, 16,16,
+  16,16, 16,16, 4, 3, 8,8, 8,8, 8,8, 16,16, 16,16, 16,16,
+};
+
+void playsound(int melody[], int duration[]) {
+    for (int thisNote = 0; melody[thisNote]!=-1; thisNote++) {
+        int noteDuration = 1000 / duration[thisNote];
+        tone(9, melody[thisNote], noteDuration);
+        int pauseBetweenNotes = noteDuration * 1.30;
+        delay(pauseBetweenNotes);
+        noTone(9);
+    }
+}
+
+void RGB_led(bool R, bool G, bool B) {
+    if (R){
+      digitalWrite(led_R, HIGH);
+    }
+    else{
+      digitalWrite(led_R, LOW);
+    }
+    if (G){
+      digitalWrite(led_G, HIGH);
+    }
+    else{
+      digitalWrite(led_G, LOW);
+    }
+    if (B){
+      digitalWrite(led_B, HIGH);
+    }
+    else{
+      digitalWrite(led_B, LOW);
+    }
+}
+
+void setup() {  
+  Serial.begin(9600);
+  pinMode(led_R, OUTPUT);
+  pinMode(led_G, OUTPUT);
+  pinMode(led_B, OUTPUT);
+
+  pinMode(led_voorL, OUTPUT);
+  pinMode(led_voorR, OUTPUT);
+  pinMode(led_achterL, OUTPUT);
+  pinMode(led_achterR, OUTPUT);
+  digitalWrite(led_voorL, HIGH);
+  digitalWrite(led_voorR, HIGH);
+
+  digitalWrite(led_achterL, HIGH);
+  digitalWrite(led_achterR, HIGH);
+  
+  playsound (battery_melody, battery_duration);
+}
+
+void loop() {
+    //Serial.readBytes(char_command, 4); //Read the serial data and store in var
+    if (char_command == "alaa" && alarmPlayed == false) {
+      playsound (alarm_melody, alarm_duration);
+      alarmPlayed = true;
+    }
+    else if (char_command == "batt" && batterijPlayed == false) {
+      playsound (battery_melody, battery_duration);
+    }
+    else if (char_command == "rood") {
+      RGB_led(true, false, false);
+    }
+    else if (char_command == "wite") {
+      RGB_led(true, true, true);
+    }
+    else if (char_command == "groe") {
+      RGB_led(false, true, false);
+    }
+    else if (char_command != "alaa") {
+      alarmPlayed = false;
+    }
+    else if (char_command != "batt") {
+      batterijPlayed = false;
+    } 
+    else if (char_command == "fonn") {
+      digitalWrite(led_voorL, HIGH);
+      digitalWrite(led_voorR, HIGH);
+    } 
+    else if (char_command == "foff") {
+      digitalWrite(led_voorL, LOW);
+      digitalWrite(led_voorR, LOW);
+    } 
+    else if (char_command == "bonn") {
+      digitalWrite(led_achterL, HIGH);
+      digitalWrite(led_achterR, HIGH);
+    } 
+    else if (char_command == "boff") {
+      digitalWrite(led_achterL, LOW);
+      digitalWrite(led_achterR, LOW);
+    }
+    delay(100);
+}  
