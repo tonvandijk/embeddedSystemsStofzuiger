@@ -1,0 +1,313 @@
+#include <Ultrasonic.h>
+#include <Wire.h> 
+#include <LiquidCrystal_I2C.h>
+
+enum State{straight_ahead, dodging, dodge_left, dodge_right, dodging_hole, random_movement};
+
+State current_state{};
+State next_state{};
+  
+LiquidCrystal_I2C lcd(0x27, 16, 2);  // set the LCD address to 0x27 for a 16 chars and 2 line display
+
+//set pins for ultrasonic sensors
+Ultrasonic sensorVoor(6, 7); // (Trig PIN,Echo PIN)
+Ultrasonic sensorLinks(8, 9); // (Trig PIN,Echo PIN)
+Ultrasonic sensorRechts(A1, A2); // (Trig PIN,Echo PIN)
+
+bool left_closest = false;
+bool right_closest = false;
+bool dont_change_state = false;
+
+//for battery voltage
+const int batteryPin = A0;
+
+//L293n Connection   
+const int motorLinksA = 2;
+const int motorLinksB = 3;
+const int motorLinksSpeed = 10;
+
+const int motorRechtsA = 4;
+const int motorRechtsB = 5;
+const int motorRechtsSpeed = 11;
+
+//irSensor Connection
+const int dieptesensor = 13;
+
+//de tijd om 1 graad = 6.8888
+const int hoek1 = 6.8888;
+const int hoek90 = 620; //tijd in ms om 90 graden te draaien;
+int batterijPercentage;
+
+int counter = 0;
+int front_parameter;
+
+char command[10] = "leeg";
+
+void setup() {
+  //set io for motors
+  pinMode(motorLinksA, OUTPUT);
+  pinMode(motorLinksB, OUTPUT);
+  pinMode(motorRechtsA, OUTPUT);
+  pinMode(motorRechtsB, OUTPUT);
+
+  pinMode(motorLinksSpeed, OUTPUT);
+  pinMode(motorRechtsSpeed, OUTPUT);
+
+  pinMode(dieptesensor, INPUT);
+
+  Serial.begin(9600);
+
+  lcd.begin();
+  lcd.backlight();
+  lcd.setCursor(1, 0);
+  lcd.print("welkom bij BOB"); 
+  
+  char bericht[10] = "ssou"; 
+  Serial.write(bericht, 4);
+  delay(1000);
+
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+  
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(batterijPercentage); 
+
+  next_state = straight_ahead;
+}
+
+void adjust_left(int time) {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+  delay(time);
+}
+
+void adjust_right(int time) {
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+  delay(time);
+}
+
+void drive_forward() {
+  digitalWrite(motorLinksA, HIGH);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, HIGH);
+  digitalWrite(motorRechtsB, LOW);
+}
+
+void drive_backward(int time) {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, HIGH);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, HIGH);
+  delay(time);
+}
+
+void prevent_fall(){
+  drive_backward(1000);
+  adjust_left(620);
+}
+
+void stop_driving() {
+  digitalWrite(motorLinksA, LOW);
+  digitalWrite(motorLinksB, LOW);
+
+  digitalWrite(motorRechtsA, LOW);
+  digitalWrite(motorRechtsB, LOW);
+}
+
+void follow_wall_right(int wall_too_close, int wall_too_far){
+  int wall_distance = sensorRechts.read();
+  if (wall_distance > wall_too_close && wall_distance < wall_too_far) {
+    drive_forward();
+    counter = 0;
+  }
+  if (wall_distance < wall_too_close && wall_distance < wall_too_far) {
+    if (counter == 0) {
+      adjust_left(5);
+    }
+    drive_forward();
+  }
+  if (wall_distance > wall_too_close && wall_distance > wall_too_far) {
+    if (counter == 0) {
+      adjust_right(5);
+    }
+    drive_forward();
+  }
+  if (counter > 40) {
+    counter = 0;
+  }
+  else {
+    counter++;
+  }
+}
+
+void follow_wall_left(int wall_too_close, int wall_too_far){
+  int wall_distance = sensorLinks.read();
+  if (wall_distance > wall_too_close && wall_distance < wall_too_far) {
+    drive_forward();
+    counter = 0;
+  }
+  if (wall_distance < wall_too_close && wall_distance < wall_too_far) {
+    if (counter == 0) {
+      adjust_left(5);
+    }
+    drive_forward();
+  }
+  if (wall_distance > wall_too_close && wall_distance > wall_too_far) {
+    if (counter == 0) {
+      adjust_right(5);
+    }
+    drive_forward();
+  }
+  if (counter > 40) {
+    counter = 0;
+  }
+  else {
+    counter++;
+  }
+}
+
+void print_battery(){
+  batterijPercentage = map(analogRead(batteryPin), 614, 921, 0, 100);
+  lcd.setCursor(0, 1);
+  lcd.print("batterij:");
+  lcd.setCursor(10, 1);
+  lcd.print(sensorLinks.read());
+}
+
+int closest_wall(){
+  int distance_left = sensorLinks.read();
+  int distance_right = sensorRechts.read();
+  if (distance_left > distance_right){
+    left_closest = false;
+    right_closest = true;
+  }
+  else {
+    left_closest = true;
+    right_closest = false;
+  }
+} 
+
+void loop() {
+  current_state = next_state;
+  
+  Serial.print("ultrasone voor \t\t");
+  Serial.println(sensorVoor.read());
+  Serial.print("ultrasone rechts\t");
+  Serial.println(sensorRechts.read());
+  Serial.print("ultrasone links\t\t");
+  Serial.println(sensorLinks.read());
+  Serial.print("afgrond\t\t\t");
+  Serial.println(digitalRead(dieptesensor));
+  
+  int distance_front = sensorVoor.read();
+  bool fall = digitalRead(dieptesensor);
+
+  if (fall == true) {
+    current_state = dodging_hole;
+  }
+  
+  switch(current_state){
+    case straight_ahead:
+      closest_wall();
+      lcd.setCursor(0, 1);
+      lcd.print("straigt");
+      /*if (left_closest == true) {
+        if (set_front_parameter) { //Links dichtstbij
+          front_parameter = sensorLinks.read();
+        }
+        follow_wall_left(front_parameter-5, front_parameter+5);
+      }
+      else { //Rechts dichtbij
+        if (set_front_parameter) { 
+          front_parameter = sensorRechts.read();
+        }
+        follow_wall_right(front_parameter-5, front_parameter+5);
+      }
+      set_front_parameter = false; //Zodat ie maar een keer wall_too_far en wall_too_close */
+      drive_forward();
+      if (distance_front < 15) {
+        current_state = dodging;
+      }
+      break;
+      
+    case dodging:
+      lcd.setCursor(0, 1);
+      lcd.print("dodging");
+      if (right_closest) {
+        adjust_left(800); // draai 90 graden
+        next_state = dodge_right;
+      }
+      else {
+        adjust_right(800); // draai 90 graden
+        next_state = dodge_left;
+      }
+      drive_forward();
+      break;
+
+    case dodge_left:
+      lcd.setCursor(0, 1);
+      lcd.print("dodgeleft");
+      int left = sensorLinks.read();
+      if (left > 25){
+        delay(400); // anders botst ie
+        adjust_left(800);
+        next_state = straight_ahead;
+      }
+      if (sensorVoor.read() < 20) {
+        adjust_left(1400);
+        next_state = dodge_right;
+      }
+      break;
+
+    case dodge_right:
+      lcd.setCursor(0, 1);
+      lcd.print("dodgeright");
+      int right = sensorRechts.read();
+      if (right > 25){
+        delay(400); // anders botst ie
+        adjust_right(800);
+        next_state = straight_ahead;
+      }
+      if (sensorVoor.read() < 20) {
+        adjust_right(1400);
+        next_state = dodge_left;
+      }
+      break;
+      
+    case dodging_hole:
+      lcd.setCursor(0, 1);
+      lcd.print("dodgehole");
+      prevent_fall();
+      next_state = random_movement;
+      break;
+
+    case random_movement:
+      lcd.setCursor(0, 1);
+      lcd.print("stofzuigen");
+      closest_wall();
+      if (distance_front < 15) {
+        if (left_closest) {
+          adjust_right(random(500, 1000));
+          drive_forward();
+        } 
+        else {
+          adjust_left(random(500, 1000));
+          drive_forward();
+        }
+      }
+      else {
+        drive_forward();
+      } 
+      break;
+  }
+}
